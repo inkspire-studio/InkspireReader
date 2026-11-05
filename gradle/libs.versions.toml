@@ -30,15 +30,12 @@ richeditorCompose = "1.0.0-rc13"
 paletteKtx = "1.0.0"
 mokoPermissionsCompose = "0.20.1"
 sqliteBundled = "2.6.2"
-kotzilla = "2.0.9"
 lottieCompose = "6.7.1"
 runtime = "1.10.5"
 foundation = "1.10.5"
 kotlinxCollectionsImmutable = "0.4.0"
 splash = "1.2.0"
 testManifest = "1.10.5"
-googleService = "4.4.4"
-firebaseAnalytic = "22.5.0"
 
 [libraries]
 junit = { module = "junit:junit", version.ref = "junit" }
@@ -79,7 +76,6 @@ androidx-navigation3-runtime = { module = "androidx.navigation3:navigation3-runt
 androidx-navigation3-ui = { module = "androidx.navigation3:navigation3-ui", version.ref = "nav3Core" }
 androidx-navigation3-viewmodel-lifecycle = { module = "androidx.lifecycle:lifecycle-viewmodel-navigation3", version.ref = "lifecycle" }
 
-firebase-analytics-ktx = { module = "com.google.firebase:firebase-analytics-ktx", version.ref = "firebaseAnalytic" }
 
 androidx-media = { module = "androidx.media:media", version.ref = "media" }
 androidx-media3-common-ktx = { module = "androidx.media3:media3-common-ktx", version.ref = "media3" }
@@ -90,7 +86,6 @@ androidx-media3-exoplayer = { module = "androidx.media3:media3-exoplayer", versi
 moko-permissions-compose = { module = "dev.icerock.moko:permissions-compose", version.ref = "mokoPermissionsCompose" }
 moko-permissions-notification = { module = "dev.icerock.moko:permissions-notifications", version.ref = "mokoPermissionsCompose" }
 
-kotzilla-sdk = { module = "io.kotzilla:kotzilla-sdk-compose", version.ref = "kotzilla" }
 koin-bom = { module = "io.insert-koin:koin-bom", version.ref = "koin-bom" }
 koin-core = { module = "io.insert-koin:koin-core" }
 koin-compose = { module = "io.insert-koin:koin-compose" }
@@ -122,5 +117,3 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 jetbrains-kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin"}
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
-kotzilla = { id = "io.kotzilla.kotzilla-plugin", version.ref = "kotzilla" }
-google-services = { id = "com.google.gms.google-services", version.ref = "googleService" }

@@ -21,7 +21,7 @@ because the androidTest classpath does not resolve (see KNOWN_ISSUES), so only t
 `:app:testDebugUnitTest` proves little yet: the suite is one `ExampleUnitTest` method.
 
 `keystore.properties` must exist or Gradle fails while configuring: `app/build.gradle.kts` casts its values to `String`
-even for a debug build. Never print or quote that file or `app/src/main/assets/kotzilla.key`. This repo is public.
+even for a debug build. Never print or quote that file. This repo is public.
 
 ## How to work here
 
@@ -29,8 +29,10 @@ even for a debug build. Never print or quote that file or `app/src/main/assets/k
 
 - **A change is one idea.** Size follows the idea: a coherent change is not chopped up to hit a line budget, and two
   unrelated ideas do not share a commit.
-- **Commit straight to `master`; never create a branch unless asked.** One developer, no CI: a branch costs a merge
-  nobody asked for. This overrides any default habit of branching off the main branch.
+- **Commit straight to `main`, the Google Play release branch; never create a branch unless asked.** One developer, no CI: a
+  branch costs a merge nobody asked for. This overrides any default habit of branching off the main branch.
+- **`master` is frozen and is never merged into `main`.** It is the final private build, kept with the online source, Firebase
+  and Kotzilla for personal use. Change it only when explicitly asked.
 - **A green build is not "done".** Compiling proves nothing about behavior. Anything touching the reader, import, TTS,
   persistence or rendering is verified on the device before it is called finished, and the commit waits for that.
 - **State the decisions in the summary**: what was chosen, what was rejected, and why. A diff cannot show that.
@@ -60,6 +62,8 @@ even for a debug build. Never print or quote that file or `app/src/main/assets/k
 
 - **Books come only from files the user picks.** No online catalog, scraper or download of book content: the app is going to
   Google Play, and sourcing third-party books from websites is a policy risk there.
+- **The app makes no network calls and declares no `INTERNET` permission.** Adding either, or an analytics or monitoring SDK,
+  changes the Play data safety declaration, so it is a decision to raise rather than a dependency to add.
 - **Absent, not disabled.** A control that changes nothing is worse than a missing one, so a verb with no op behind it does
   not appear. The exception is a control gated by a continuous control beside it, because hiding it moves the layout mid-drag.
 - **New user-facing text is a string resource**, never a literal in Kotlin. A sentence is one string with placeholders, and a
@@ -134,7 +138,7 @@ the `bottombar/default` package, `BookShelfTheme`, and the root project name `Bo
 ### Declared but unused
 
 Readium navigator, opds and lcp, `richeditor` (`ui/bookwriter/BookWriter.kt` is a stub),
-kotlinx immutable collections and Firebase Analytics have no use in source. Check before assuming one of them is the existing way.
+and kotlinx immutable collections have no use in source. Check before assuming one of them is the existing way.
 
 ## Conventions
 

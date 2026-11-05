@@ -29,4 +29,4 @@ Owed but not planned. Delete an entry in the commit that fixes it.
 
 ## Dependencies
 
-- Declared with no use in source: Readium navigator, opds and lcp, `richeditor`, kotlinx immutable collections, Firebase Analytics.
+- Declared with no use in source: Readium navigator, opds and lcp, `richeditor`, kotlinx immutable collections.

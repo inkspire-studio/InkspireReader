@@ -9,8 +9,6 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.jetbrains.kotlin.serialization)
     alias(libs.plugins.ksp)
-    alias(libs.plugins.kotzilla)
-    alias(libs.plugins.google.services)
 }
 
 val keystorePropertiesFile = rootProject.file("keystore.properties")
@@ -99,8 +97,6 @@ dependencies {
     implementation(libs.androidx.compose.runtime)
     implementation(libs.androidx.compose.foundation)
 
-    implementation(libs.firebase.analytics.ktx)
-
     implementation(libs.androidx.palette.ktx)
     implementation(libs.lottie.compose)
 
@@ -124,7 +120,6 @@ dependencies {
     implementation(libs.moko.permissions.compose)
     implementation(libs.moko.permissions.notification)
 
-    implementation(libs.kotzilla.sdk)
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.core)
     implementation(libs.koin.compose)
@@ -164,10 +159,4 @@ dependencies {
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
-}
-
-tasks.configureEach {
-    if (name.startsWith("ksp") && name.endsWith("Kotlin")) {
-        dependsOn("generateKotzillaConfig")
-    }
 }
