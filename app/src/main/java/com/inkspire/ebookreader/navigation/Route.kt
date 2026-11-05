@@ -15,16 +15,6 @@ sealed interface Route : NavKey {
         data object Library : Home
 
         @Serializable
-        sealed interface Explore : Home {
-
-            @Serializable
-            data object Search : Explore
-
-            @Serializable
-            data class Detail(val bookUrl: String, val chapter: String) : Explore
-        }
-
-        @Serializable
         data object Settings : Route
     }
 

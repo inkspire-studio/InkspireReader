@@ -23,4 +23,3 @@
 -keep class io.kotzilla.data.json.** { *; }
 -keep class io.kotzilla.sdk.** { *; }
 -keepclassmembers class kotlinx.** { volatile <fields>; }
--keepclassmembers class io.ktor.** { volatile <fields>; }

@@ -23,7 +23,6 @@ workRuntimeKtx = "2.11.1"
 slf4jAndroid = "1.7.36"
 jsoup = "1.22.1"
 epublib = "3.1"
-ktorClient = "3.4.1"
 pdfboxAndroid = "2.0.27.0"
 hazeMaterials = "1.7.2"
 coilCompose = "3.4.0"
@@ -39,7 +38,6 @@ kotlinxCollectionsImmutable = "0.4.0"
 splash = "1.2.0"
 testManifest = "1.10.5"
 googleService = "4.4.4"
-firebaseConfig = "22.1.2"
 firebaseAnalytic = "22.5.0"
 
 [libraries]
@@ -81,7 +79,6 @@ androidx-navigation3-runtime = { module = "androidx.navigation3:navigation3-runt
 androidx-navigation3-ui = { module = "androidx.navigation3:navigation3-ui", version.ref = "nav3Core" }
 androidx-navigation3-viewmodel-lifecycle = { module = "androidx.lifecycle:lifecycle-viewmodel-navigation3", version.ref = "lifecycle" }
 
-firebase-config-ktx = { module = "com.google.firebase:firebase-config-ktx", version.ref = "firebaseConfig" }
 firebase-analytics-ktx = { module = "com.google.firebase:firebase-analytics-ktx", version.ref = "firebaseAnalytic" }
 
 androidx-media = { module = "androidx.media:media", version.ref = "media" }
@@ -99,9 +96,6 @@ koin-core = { module = "io.insert-koin:koin-core" }
 koin-compose = { module = "io.insert-koin:koin-compose" }
 koin-compose-viewmodel = { module = "io.insert-koin:koin-compose-viewmodel" }
 
-ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktorClient" }
-ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktorClient" }
-
 readium-streamer = { module = "org.readium.kotlin-toolkit:readium-streamer", version.ref = "readium" }
 readium-shared = { module = "org.readium.kotlin-toolkit:readium-shared", version.ref = "readium" }
 readium-navigator = { module = "org.readium.kotlin-toolkit:readium-navigator", version.ref = "readium" }
@@ -115,7 +109,6 @@ slf4j-android = { module = "org.slf4j:slf4j-android", version.ref = "slf4jAndroi
 jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
 
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coilCompose" }
-coil-compose-network = { module = "io.coil-kt.coil3:coil-network-ktor3", version.ref = "coilCompose" }
 
 haze-materials = { module = "dev.chrisbanes.haze:haze-materials", version.ref = "hazeMaterials" }
 richeditor-compose = { module = "com.mohamedrejeb.richeditor:richeditor-compose", version.ref = "richeditorCompose" }

@@ -8,7 +8,6 @@
 
     <!-- Notification Titles -->
     <string name="notification_title_importing_fmt">Importing: %1$s</string>
-    <string name="notification_title_updating_fmt">Updating: %1$s</string>
 
     <!-- Progress Status Messages -->
     <string name="status_starting">Starting import…</string>
@@ -19,17 +18,11 @@
     <string name="status_saving_content">Saving content…</string>
     <string name="status_processing_item_fmt">Processing: %1$s</string>
     <string name="status_processing_progress_fmt">Processing %1$d/%2$d: %3$s</string>
-    <plurals name="status_found_new_chapters">
-        <item quantity="one">Found %1$d new chapter…</item>
-        <item quantity="other">Found %1$d new chapters…</item>
-    </plurals>
-    <string name="status_up_to_date">Book is already up to date.</string>
 
     <!-- Completion Results -->
     <string name="result_success_title">Import Successful</string>
     <string name="result_failed_title">Import Failed</string>
     <string name="result_success_msg_fmt">\'%1$s\' added to your library.</string>
-    <string name="result_success_update_fmt">Updated \'%1$s\' with %2$d new chapters.</string>
 
     <!-- Error Messages -->
     <string name="error_default_title">File</string>
@@ -55,6 +48,6 @@
 
     <string name="recents">Recents</string>
     <string name="library">Library</string>
-    <string name="explore">Explore</string>
+    <string name="library_empty_hint">Tap the \'+\' to import books from your device.</string>
     <string name="settings">Settings</string>
 </resources>

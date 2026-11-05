@@ -99,7 +99,6 @@ dependencies {
     implementation(libs.androidx.compose.runtime)
     implementation(libs.androidx.compose.foundation)
 
-    implementation(libs.firebase.config.ktx)
     implementation(libs.firebase.analytics.ktx)
 
     implementation(libs.androidx.palette.ktx)
@@ -131,9 +130,6 @@ dependencies {
     implementation(libs.koin.compose)
     implementation(libs.koin.compose.viewmodel)
 
-    implementation(libs.ktor.client.core)
-    implementation(libs.ktor.client.okhttp)
-
     coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(libs.readium.streamer)
     implementation(libs.readium.shared)
@@ -152,7 +148,6 @@ dependencies {
     implementation(libs.jsoup)
 
     implementation(libs.coil.compose)
-    implementation(libs.coil.compose.network)
 
     implementation(libs.haze.materials)
     implementation(libs.richeditor.compose) {

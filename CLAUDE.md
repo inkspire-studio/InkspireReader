@@ -1,7 +1,7 @@
 # CLAUDE.md
 
-Working guidance for **Inkspire Reader**, an Android ebook reader: import EPUB, PDF and CBZ, or scrape a web novel,
-then read it in a Compose reader with TTS, background music, autoscroll, notes, highlights and bookmarks.
+Working guidance for **Inkspire Reader**, an Android ebook reader: import EPUB, PDF and CBZ files the user picks, then
+read them in a Compose reader with TTS, background music, autoscroll, notes, highlights and bookmarks.
 
 [docs/README.md](docs/README.md) is the map of every document. A plan's folder is its state. What is owed but not
 planned is in [docs/record/KNOWN_ISSUES.md](docs/record/KNOWN_ISSUES.md).
@@ -18,8 +18,7 @@ adb shell am start -n com.inkspire.ebookreader.debug/com.inkspire.ebookreader.ui
 Use `.\gradlew.bat` in PowerShell. There is no detekt, ktlint or CI, and `:app:lintDebug` currently fails before it starts
 because the androidTest classpath does not resolve (see KNOWN_ISSUES), so only the compiler checks a change.
 
-`:app:testDebugUnitTest` is not a green-or-red signal yet: the suite is two `ExampleUnitTest` methods, and
-`testTruyenFullScraper` calls the live site, so it fails whenever that site is down.
+`:app:testDebugUnitTest` proves little yet: the suite is one `ExampleUnitTest` method.
 
 `keystore.properties` must exist or Gradle fails while configuring: `app/build.gradle.kts` casts its values to `String`
 even for a debug build. Never print or quote that file or `app/src/main/assets/kotzilla.key`. This repo is public.
@@ -59,6 +58,8 @@ even for a debug build. Never print or quote that file or `app/src/main/assets/k
 
 ### Standing rules
 
+- **Books come only from files the user picks.** No online catalog, scraper or download of book content: the app is going to
+  Google Play, and sourcing third-party books from websites is a policy risk there.
 - **Absent, not disabled.** A control that changes nothing is worse than a missing one, so a verb with no op behind it does
   not appear. The exception is a control gated by a continuous control beside it, because hiding it moves the layout mid-drag.
 - **New user-facing text is a string resource**, never a literal in Kotlin. A sentence is one string with placeholders, and a
@@ -78,9 +79,9 @@ Room, DataStore, Koin, WorkManager, Media3. Versions live in `gradle/libs.versio
 **Layers:** `ui` → `domain/usecase` → `domain/repository` (interfaces) → `data/repository` (Impl) → `data/database` DAOs.
 A use case here is a **per-feature facade**, such as `LibraryUseCase`, not a single action. No DAO is imported outside `data/`:
 keep it that way. Known debt that new code must not copy: `domain/repository` interfaces expose Room entities, and
-`NoteViewModel`, `HiddenTextViewModel` and the explore ViewModels skip the use case layer.
+`NoteViewModel` and `HiddenTextViewModel` skip the use case layer.
 
-`common/` is only `UiState` and `DeviceConfiguration`; helpers, the scrapers and `BookImporter` are in `util/`.
+`common/` is only `UiState` and `DeviceConfiguration`; helpers and `BookImporter` are in `util/`.
 
 **Screens are `onAction` ViewModels.** Each folder holds `XRootScreen` (gets the ViewModel, collects state), `XScreen`,
 `XState`, a sealed `XAction`, `XViewModel`, and `composable/`. The ViewModel has one private `MutableStateFlow`, exposes one
@@ -96,7 +97,7 @@ pattern; here it is the established one (23 of 26 ViewModels), so new screens fo
 (`common/ContentPattern.kt`) to an image, header or paragraph component. Readium is used only to open files on import.
 
 **Import is the workers** (`worker/`): `EPUBImportWorker` (Readium, Jsoup), `CBZImportWorker` (Readium), `PDFImportWorker`
-(pdfbox-android), `TruyenFullImportWorker` (scraper, Jsoup), and `EPUBExportWorker` (epublib, export only). They are the
+(pdfbox-android), and `EPUBExportWorker` (epublib, export only). They are the
 largest files in the app and turn every format into the one stored shape below.
 
 **Persistence.** `data/database/LocalBookDatabase.kt` is Room, version 1, with no migrations and `exportSchema = false`.
@@ -121,8 +122,9 @@ parameters; `factoryOf` for use cases; `singleOf(...).bind<>()` for repositories
 BookWriter) and `ui/home/HomeScreen` (the tabs). Routes are in `navigation/Route.kt`. Adaptive layout reads
 `common/DeviceConfiguration`.
 
-**Explore scrapes HTML** (`util/TruyenFullScraper`). Its base URL is the Firebase Remote Config key `truyen_full_base_url`, with
-a default in `res/xml/remote_config_defaults.xml`.
+**Older installs may hold books with `fileType = "epub-online"`,** imported before the online source was removed. Their chapters
+are in the DB like any other book, so they stay readable. Do not assume every book has a local file behind `storagePath`: on these
+it is a URL.
 
 ### Names that look wrong and are load-bearing
 
@@ -131,7 +133,7 @@ the `bottombar/default` package, `BookShelfTheme`, and the root project name `Bo
 
 ### Declared but unused
 
-Readium navigator, opds and lcp, Ktor (except through Coil), `richeditor` (`ui/bookwriter/BookWriter.kt` is a stub),
+Readium navigator, opds and lcp, `richeditor` (`ui/bookwriter/BookWriter.kt` is a stub),
 kotlinx immutable collections and Firebase Analytics have no use in source. Check before assuming one of them is the existing way.
 
 ## Conventions

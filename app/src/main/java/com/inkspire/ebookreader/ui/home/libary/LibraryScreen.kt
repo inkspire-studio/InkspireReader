@@ -46,7 +46,6 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -67,12 +66,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -102,7 +101,6 @@ import kotlinx.coroutines.launch
 fun LibraryScreen(
     state: LibraryState,
     onAction: (LibraryAction) -> Unit,
-    homeNavigatorAction: (NavKey) -> Unit,
     parentNavigatorAction: (NavKey) -> Unit
 ) {
     val context = LocalContext.current
@@ -504,25 +502,13 @@ fun LibraryScreen(
                                         )
                                         Spacer(modifier = Modifier.height(16.dp))
                                         Text(
-                                            text = "Tap the '+' to import books from your device, or use the arrow to browse for books on the internet.",
+                                            text = stringResource(R.string.library_empty_hint),
                                             style = MaterialTheme.typography.bodyLarge.copy(
                                                 lineHeight = 24.sp
                                             ),
                                             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
                                             textAlign = TextAlign.Center
                                         )
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        FilledTonalIconButton(
-                                            onClick = {
-                                                homeNavigatorAction(Route.Home.Explore.Search)
-                                            }
-                                        ) {
-                                            Icon(
-                                                modifier = Modifier.rotate(180f),
-                                                imageVector = ImageVector.vectorResource(id = R.drawable.ic_arrow),
-                                                contentDescription = "Add Books"
-                                            )
-                                        }
                                     }
                                 }
 

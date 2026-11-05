@@ -2,7 +2,6 @@ package com.inkspire.ebookreader.ui.bookcontent.chaptercontent
 
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -38,9 +37,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -61,7 +58,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -83,7 +79,6 @@ import com.inkspire.ebookreader.ui.bookcontent.common.LocalTTSViewModel
 import com.inkspire.ebookreader.ui.bookcontent.content.ChapterContent
 import com.inkspire.ebookreader.ui.bookcontent.root.BookContentDataAction
 import com.inkspire.ebookreader.ui.composable.MyLoadingAnimation
-import com.inkspire.ebookreader.util.BookImporter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -110,8 +105,6 @@ fun BookChapterContent(
     val ttsPlaybackState by ttsVM.state.collectAsStateWithLifecycle()
     val bookChapterContentState by chapterContentVM.state.collectAsStateWithLifecycle()
 
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var originalOffset by remember { mutableStateOf(Offset.Zero) }
     var size by remember { mutableStateOf(IntSize.Zero) }
     var originalZoom by remember { mutableFloatStateOf(1f) }
@@ -510,34 +503,6 @@ fun BookChapterContent(
                                     fontSize = MaterialTheme.typography.bodyMedium.fontSize,
                                 )
                             )
-                            if(bookInfoProvider().fileType == "epub-online" && currentChapter() + 1 == bookInfoProvider().totalChapter) {
-                                OutlinedButton(
-                                    onClick = {
-                                        BookImporter(
-                                            context = context,
-                                            scope = scope,
-                                            specialIntent = "null",
-                                        ).fetchNewChapter(bookInfoProvider())
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = stylingState.stylePreferences.backgroundColor,
-                                        contentColor = stylingState.stylePreferences.textColor,
-                                    ),
-                                    border = BorderStroke(
-                                        width = 2.dp,
-                                        color = stylingState.stylePreferences.textColor
-                                    )
-                                ) {
-                                    Text(
-                                        text = "Check for new chapter",
-                                        style = TextStyle(
-                                            color = stylingState.stylePreferences.textColor,
-                                            fontSize = MaterialTheme.typography.bodyMedium.fontSize,
-                                            fontFamily = stylingState.fontFamilies[stylingState.stylePreferences.fontFamily],
-                                        )
-                                    )
-                                }
-                            }
                         }
                     }
                 }

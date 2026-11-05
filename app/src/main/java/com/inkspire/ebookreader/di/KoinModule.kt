@@ -53,8 +53,6 @@ import com.inkspire.ebookreader.ui.bookcontent.topbar.BookContentTopBarViewModel
 import com.inkspire.ebookreader.ui.bookcontent.tts.TTSManager
 import com.inkspire.ebookreader.ui.bookcontent.tts.TTSViewModel
 import com.inkspire.ebookreader.ui.bookdetail.BookDetailViewModel
-import com.inkspire.ebookreader.ui.home.explore.detail.DetailViewModel
-import com.inkspire.ebookreader.ui.home.explore.search.SearchViewModel
 import com.inkspire.ebookreader.ui.home.libary.LibraryViewModel
 import com.inkspire.ebookreader.ui.home.recentbook.RecentBookViewModel
 import com.inkspire.ebookreader.ui.setting.SettingViewModel
@@ -65,8 +63,6 @@ import com.inkspire.ebookreader.ui.setting.hiddentext.HiddenTextViewModel
 import com.inkspire.ebookreader.ui.setting.music.MusicSettingViewModel
 import com.inkspire.ebookreader.ui.setting.tts.TTSSettingViewModel
 import com.inkspire.ebookreader.ui.sharedviewmodel.AsyncImportBookViewModel
-import com.inkspire.ebookreader.util.AndroidConnectivityObserver
-import com.inkspire.ebookreader.util.ConnectivityObserver
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.factoryOf
 import org.koin.core.module.dsl.singleOf
@@ -76,10 +72,6 @@ import org.koin.dsl.bind
 import org.koin.dsl.module
 
 object KoinModule {
-    val networkModule = module {
-        singleOf(::AndroidConnectivityObserver) bind ConnectivityObserver::class
-    }
-
     val databaseModule = module {
         single(createdAtStart = true) {
             Room
@@ -146,12 +138,6 @@ object KoinModule {
         viewModelOf(::MusicSettingViewModel)
         viewModelOf(::HiddenTextViewModel)
         viewModelOf(::RecentBookViewModel)
-        viewModelOf(::SearchViewModel)
-        viewModel{
-            DetailViewModel(
-                bookUrl = it.get()
-            )
-        }
         viewModel {
             BookContentDataViewModel(
                 bookId = it.get(),
