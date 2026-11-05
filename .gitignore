@@ -15,3 +15,6 @@
 local.properties
 *.jks
 keystore.properties
+.kotlin/
+.claude/settings.local.json
+.mcp.json

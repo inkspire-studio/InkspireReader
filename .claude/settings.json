@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew :app:assembleDebug*)",
+      "Bash(./gradlew :app:installDebug*)",
+      "Bash(./gradlew :app:compileDebugKotlin*)",
+      "Bash(./gradlew :app:testDebugUnitTest*)",
+      "PowerShell(.\\gradlew.bat :app:assembleDebug*)",
+      "PowerShell(.\\gradlew.bat :app:installDebug*)",
+      "PowerShell(.\\gradlew.bat :app:compileDebugKotlin*)",
+      "PowerShell(.\\gradlew.bat :app:testDebugUnitTest*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show*)",
+      "Bash(adb devices*)",
+      "Bash(adb install *)",
+      "Bash(adb logcat *)",
+      "Bash(adb exec-out screencap *)",
+      "Bash(adb shell dumpsys *)",
+      "Bash(adb shell input *)",
+      "Bash(adb shell am start *)",
+      "Bash(adb shell uiautomator dump *)"
+    ],
+    "deny": [
+      "Read(./keystore.properties)",
+      "Read(./app/src/main/assets/kotzilla.key)",
+      "Read(./**/*.jks)",
+      "Read(./**/*.keystore)"
+    ]
+  }
+}
