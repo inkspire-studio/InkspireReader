@@ -18,7 +18,7 @@ adb shell am start -n com.inkspire.ebookreader.debug/com.inkspire.ebookreader.ui
 Use `.\gradlew.bat` in PowerShell. There is no detekt, ktlint or CI, and `:app:lintDebug` currently fails before it starts
 because the androidTest classpath does not resolve (see KNOWN_ISSUES), so only the compiler checks a change.
 
-`:app:testDebugUnitTest` proves little yet: the suite is one `ExampleUnitTest` method.
+`:app:testDebugUnitTest` covers EPUB parsing and `TextMapper`, and nothing else yet.
 
 `keystore.properties` must exist or Gradle fails while configuring: `app/build.gradle.kts` casts its values to `String`
 even for a debug build. Never print or quote that file. This repo is public.
@@ -101,8 +101,12 @@ pattern; here it is the established one (23 of 26 ViewModels), so new screens fo
 (`common/ContentPattern.kt`) to an image, header or paragraph component. Readium is used only to open files on import.
 
 **Import is the workers** (`worker/`): `EPUBImportWorker` (Readium, Jsoup), `CBZImportWorker` (Readium), `PDFImportWorker`
-(pdfbox-android), and `EPUBExportWorker` (epublib, export only). They are the
-largest files in the app and turn every format into the one stored shape below.
+(pdfbox-android), and `EPUBExportWorker` (epublib, export only). They turn every format into the one stored shape below.
+
+**EPUB parsing lives in `worker/epub/`, free of Android and Readium, so it is unit tested; add a failing book's case to its tests.**
+`EpubChapterPlanner` decides the chapters: the spine says what the book contains, and the table of contents only names chapters
+and marks splits, so a sparse or oversized one cannot lose content. `EpubHtmlParser` turns a file into paragraphs and images, and
+`EpubImageResolver` finds an image's file by resolving its path against its chapter. Stylesheet formatting is not read: only tags.
 
 **Persistence.** `data/database/LocalBookDatabase.kt` is Room, version 1, with no migrations and `exportSchema = false`.
 `ChapterContentEntity.content` is a `List<String>` stored as JSON: paragraphs with inline HTML tags, and image paths as
@@ -112,6 +116,8 @@ paragraphs. Image and music files are in `filesDir`, with their paths in the DB.
 - **A Room schema change needs a written migration and a version bump.** Without one, `fallbackToDestructiveMigration` in
   `di/KoinModule.kt` wipes the user's library on upgrade, silently.
 - **The stored chapter strings are a format.** A change to how a worker writes them must also work for books already imported.
+  A `<` from a book's text is stored as a marker (`util/StoredText`), so anything that shows or exports stored text must decode
+  it, and a new tag must be drawn by `TextMapper`, or it shows on screen as text.
 - **Never change the application ID casually.** `ContentPattern.linkPattern` matches stored paths on
   `.inkspire.ebookreader[.debug]/files/`, so a new ID stops image detection, silently.
 

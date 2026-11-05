@@ -8,6 +8,7 @@ import com.inkspire.ebookreader.ui.bookcontent.common.ContentPattern.headerPatte
 import com.inkspire.ebookreader.ui.bookcontent.common.ContentPattern.htmlTagPattern
 import com.inkspire.ebookreader.ui.bookcontent.common.ContentPattern.linkPattern
 import com.inkspire.ebookreader.ui.bookcontent.common.ContentPattern.linkPatternDebug
+import com.inkspire.ebookreader.util.StoredText
 import com.inkspire.ebookreader.util.TextMapper
 
 @Composable
@@ -30,7 +31,7 @@ fun ChapterContent(
         if (cleanText.isNotEmpty()) {
             HeaderComponent(
                 index = index,
-                text = cleanText,
+                text = StoredText.decode(cleanText),
                 isTTSHighlighted = isTTSHighlightProvider,
                 currentChapterIndex = currentChapterIndex,
                 headerLevel = headerLevel.find(paragraph)!!.groupValues[1].toInt(),

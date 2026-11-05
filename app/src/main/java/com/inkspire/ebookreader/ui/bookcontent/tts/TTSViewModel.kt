@@ -26,6 +26,7 @@ import com.inkspire.ebookreader.service.TTSService
 import com.inkspire.ebookreader.ui.bookcontent.common.ContentPattern.htmlTagPattern
 import com.inkspire.ebookreader.ui.bookcontent.common.ContentPattern.linkPattern
 import com.inkspire.ebookreader.ui.bookcontent.common.ContentPattern.linkPatternDebug
+import com.inkspire.ebookreader.util.StoredText
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -348,7 +349,7 @@ class TTSViewModel(
             currentChapterTitle = ch.chapterTitle
             val contentToRead = ch.content.map { raw ->
                 val cleaned = htmlTagPattern.replace(raw, replacement = "")
-                if (linkPattern.containsMatchIn(cleaned) || linkPatternDebug.containsMatchIn(cleaned)) " " else cleaned.trim()
+                if (linkPattern.containsMatchIn(cleaned) || linkPatternDebug.containsMatchIn(cleaned)) " " else StoredText.decode(cleaned).trim()
             }
             _state.update { it.copy(chapterText = contentToRead) }
             ttsManager.updateChapter(contentToRead)

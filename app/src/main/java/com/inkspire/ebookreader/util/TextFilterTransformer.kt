@@ -17,9 +17,11 @@ object TextFilterTransformer {
 
         textsToHide.forEach { text ->
             if (text.isNotEmpty()) {
-                val regex = Regex(Regex.escape(text))
-                regex.findAll(originalText).forEach { match ->
-                    deleteRanges.add(match.range)
+                // Paragraphs from older imports hold a literal < as itself, newer ones as the marker.
+                listOf(text, StoredText.encode(text)).distinct().forEach { pattern ->
+                    Regex(Regex.escape(pattern)).findAll(originalText).forEach { match ->
+                        deleteRanges.add(match.range)
+                    }
                 }
             }
         }

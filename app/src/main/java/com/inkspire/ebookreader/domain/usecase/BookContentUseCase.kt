@@ -12,6 +12,7 @@ import com.inkspire.ebookreader.domain.repository.ChapterRepository
 import com.inkspire.ebookreader.domain.repository.HiddenTextRepository
 import com.inkspire.ebookreader.domain.repository.HighlightRepository
 import com.inkspire.ebookreader.domain.repository.TableOfContentRepository
+import com.inkspire.ebookreader.util.StoredText
 import com.inkspire.ebookreader.util.HighlightUtil
 import com.inkspire.ebookreader.util.TextFilterTransformer
 import com.inkspire.ebookreader.util.TextMapper
@@ -81,7 +82,7 @@ class BookContentUseCase(
         val rawEnd = mapped.displayToRawMap[visualEnd]
 
         val sb = StringBuilder(rawParagraph)
-        sb.replace(rawStart, rawEnd, replacementText)
+        sb.replace(rawStart, rawEnd, StoredText.encode(replacementText))
         val newRawParagraph = sb.toString()
 
         val newContentList = chapterContent.content.toMutableList()
@@ -117,13 +118,14 @@ class BookContentUseCase(
             for (i in newContentList.indices) {
                 val originalText = newContentList[i]
 
-                if (!originalText.contains(find, ignoreCase = !isCaseSensitive)) {
-                    continue
-                }
+                // Paragraphs from older imports hold a literal < as itself, newer ones as the marker.
+                val findInParagraph = listOf(StoredText.encode(find), find).firstOrNull {
+                    originalText.contains(it, ignoreCase = !isCaseSensitive)
+                } ?: continue
 
                 val currentParaHighlights = highlightMap[i] ?: emptyList()
                 val (newText, newParaHighlights) = HighlightUtil.batchFindAndReplace(
-                    originalText, find, replace, currentParaHighlights, isCaseSensitive
+                    originalText, findInParagraph, StoredText.encode(replace), currentParaHighlights, isCaseSensitive
                 )
 
                 if (newText != originalText) {
@@ -166,7 +168,7 @@ class BookContentUseCase(
 
         chapters.forEach { chapter ->
             chapter.content.forEachIndexed { index, rawParagraph ->
-                val cleanParagraph = rawParagraph.replace(htmlTagPattern, "")
+                val cleanParagraph = StoredText.decode(rawParagraph.replace(htmlTagPattern, ""))
 
                 var matchIndex = cleanParagraph.indexOf(query, ignoreCase = !isCaseSensitive)
 
@@ -222,7 +224,7 @@ class BookContentUseCase(
                             tocId = chapter.tocId,
                             paragraphIndex = paraIndex,
                             chapterTitle = chapter.chapterTitle,
-                            content = transformationResult.displayText,
+                            content = StoredText.decode(transformationResult.displayText),
                             highlights = transformationResult.adjustedHighlights
                         )
                     )

@@ -9,6 +9,7 @@ import androidx.work.WorkerParameters
 import com.inkspire.ebookreader.domain.repository.BookRepository
 import com.inkspire.ebookreader.domain.repository.ChapterRepository
 import com.inkspire.ebookreader.domain.repository.TableOfContentRepository
+import com.inkspire.ebookreader.util.StoredText
 import com.inkspire.ebookreader.util.HeaderTextSizeUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -118,7 +119,7 @@ class EPUBExportWorker(
                     }
                 }
             } else {
-                htmlBuilder.append(paragraphHtml)
+                htmlBuilder.append(StoredText.decodeToHtml(paragraphHtml))
             }
         }
 

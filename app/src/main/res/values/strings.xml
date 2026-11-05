@@ -23,6 +23,10 @@
     <string name="result_success_title">Import Successful</string>
     <string name="result_failed_title">Import Failed</string>
     <string name="result_success_msg_fmt">\'%1$s\' added to your library.</string>
+    <plurals name="result_partial_msg_fmt">
+        <item quantity="one">\'%1$s\' added to your library, but %2$d chapter could not be read.</item>
+        <item quantity="other">\'%1$s\' added to your library, but %2$d chapters could not be read.</item>
+    </plurals>
 
     <!-- Error Messages -->
     <string name="error_default_title">File</string>
@@ -30,6 +34,7 @@
     <string name="error_detailed_fmt">Failed to import \'%1$s\': %2$s</string>
     <string name="error_book_already_exists">This book is already in your library.</string>
     <string name="error_read_file">Could not read the source file.</string>
+    <string name="error_book_protected">This book is protected by DRM and cannot be imported.</string>
     <string name="error_invalid_format">File format is invalid or corrupted.</string>
     <string name="error_no_content">No valid chapters or content found.</string>
     <string name="error_out_of_memory">Device ran out of memory processing this file.</string>

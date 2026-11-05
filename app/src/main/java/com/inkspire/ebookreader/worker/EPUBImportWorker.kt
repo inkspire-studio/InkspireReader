@@ -7,7 +7,7 @@ import android.content.Context
 import android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
 import android.graphics.Bitmap
 import android.os.Build
-import androidx.annotation.RequiresApi
+import androidx.annotation.StringRes
 import androidx.core.app.NotificationCompat
 import androidx.core.net.toUri
 import androidx.work.CoroutineWorker
@@ -17,20 +17,26 @@ import com.inkspire.ebookreader.R
 import com.inkspire.ebookreader.data.database.model.BookEntity
 import com.inkspire.ebookreader.data.database.model.ChapterContentEntity
 import com.inkspire.ebookreader.data.database.model.TableOfContentEntity
+import com.inkspire.ebookreader.domain.model.Book
 import com.inkspire.ebookreader.domain.repository.BookRepository
 import com.inkspire.ebookreader.domain.repository.ChapterRepository
 import com.inkspire.ebookreader.domain.repository.ImagePathRepository
 import com.inkspire.ebookreader.domain.repository.TableOfContentRepository
 import com.inkspire.ebookreader.util.BitmapUtil
-import com.inkspire.ebookreader.util.HtmlUtil
+import com.inkspire.ebookreader.util.FilePickerUtil
+import com.inkspire.ebookreader.worker.epub.EpubBlock
+import com.inkspire.ebookreader.worker.epub.EpubChapterDraft
+import com.inkspire.ebookreader.worker.epub.EpubChapterPlanner
+import com.inkspire.ebookreader.worker.epub.EpubHtmlParser
+import com.inkspire.ebookreader.worker.epub.EpubImageResolver
+import com.inkspire.ebookreader.worker.epub.EpubPaths
+import com.inkspire.ebookreader.worker.epub.EpubPlannedFile
+import com.inkspire.ebookreader.worker.epub.EpubSegment
+import com.inkspire.ebookreader.worker.epub.EpubTocEntry
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
-import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
-import org.jsoup.nodes.Element
-import org.jsoup.nodes.Node
-import org.jsoup.nodes.TextNode
-import org.jsoup.select.NodeVisitor
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import org.readium.r2.shared.ExperimentalReadiumApi
@@ -38,8 +44,9 @@ import org.readium.r2.shared.InternalReadiumApi
 import org.readium.r2.shared.publication.Link
 import org.readium.r2.shared.publication.Publication
 import org.readium.r2.shared.publication.services.cover
-import org.readium.r2.shared.util.Url
+import org.readium.r2.shared.publication.services.isRestricted
 import org.readium.r2.shared.util.asset.AssetRetriever
+import org.readium.r2.shared.util.getOrElse
 import org.readium.r2.shared.util.http.DefaultHttpClient
 import org.readium.r2.shared.util.resource.buffered
 import org.readium.r2.shared.util.toAbsoluteUrl
@@ -49,11 +56,15 @@ import org.readium.r2.streamer.parser.DefaultPublicationParser
 import org.readium.r2.streamer.parser.audio.AudioParser
 import org.readium.r2.streamer.parser.epub.EpubParser
 import org.readium.r2.streamer.parser.image.ImageParser
-import java.io.IOException
 import java.math.BigInteger
 import java.security.MessageDigest
-import kotlin.Result as ImportResult
 
+/**
+ * Imports one EPUB: opens it, walks the chapters [EpubChapterPlanner] plans, and stores what [EpubHtmlParser] reads.
+ *
+ * A book's row has to exist before its chapters can, so an interrupted import leaves a partial book behind. Its saved
+ * chapters then fall short of its total, which is how the next attempt tells it apart from a finished one.
+ */
 @OptIn(InternalReadiumApi::class, ExperimentalReadiumApi::class)
 class EPUBImportWorker(
     private val context: Context,
@@ -67,7 +78,11 @@ class EPUBImportWorker(
         private const val MAX_BITMAP_DIMENSION = 2048
     }
 
-    private val md = MessageDigest.getInstance("MD5")
+    private sealed interface Outcome {
+        data class Imported(val unreadableChapters: Int) : Outcome
+        data class Failed(@param:StringRes val reason: Int) : Outcome
+    }
+
     private val notificationManager =
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     private val notificationId = System.currentTimeMillis().toInt()
@@ -78,13 +93,13 @@ class EPUBImportWorker(
     private val imagePathRepository: ImagePathRepository by inject()
     private var finalBookTitle: String = ""
     private var finalBookId: String = ""
+    private var insertedBook = false
 
     init {
         createNotificationChannel(PROGRESS_CHANNEL_ID, "Book Import Progress")
         createNotificationChannel(COMPLETION_CHANNEL_ID, "Book Import Completion")
     }
 
-    @RequiresApi(Build.VERSION_CODES.Q)
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val initialNotification = createProgressNotificationBuilder(
             fileName = finalBookTitle,
@@ -92,26 +107,24 @@ class EPUBImportWorker(
         ).build()
         setForeground(getForegroundInfoCompat(initialNotification))
 
-        val processingResult = processEPUB(
-            onProgress = { progress, chapterName ->
-                updateProgressNotification(
-                    fileName = finalBookTitle,
-                    message = context.getString(R.string.status_processing_item_fmt, chapterName),
-                    progress = progress
-                )
-            }
-        )
+        val outcome = try {
+            importBook()
+        } catch (e: CancellationException) {
+            withContext(NonCancellable) { removeInsertedBook() }
+            throw e
+        } catch (_: OutOfMemoryError) {
+            Outcome.Failed(R.string.error_out_of_memory)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Outcome.Failed(R.string.error_unexpected)
+        }
+        if (outcome is Outcome.Failed) removeInsertedBook()
 
-        val isSuccess = processingResult.isSuccess
-        val failureReason = if (!isSuccess) processingResult.exceptionOrNull()?.message else null
-
-        sendCompletionNotification(isSuccess, finalBookTitle, failureReason)
+        sendCompletionNotification(outcome)
         Result.success()
     }
 
-    suspend fun processEPUB(
-        onProgress: suspend (progress: Int?, chapterName: String) -> Unit
-    ): ImportResult<String> {
+    private suspend fun importBook(): Outcome {
         val httpClient = DefaultHttpClient()
         val assetRetriever = AssetRetriever(
             contentResolver = context.contentResolver,
@@ -134,511 +147,172 @@ class EPUBImportWorker(
                 )
             )
         )
-        val epubUriString = inputData.getString(INPUT_URI_KEY) ?: return ImportResult.failure(
-            IOException("Fail to get input uri")
-        )
-        val uri = epubUriString.toUri()
-        val url = uri.toAbsoluteUrl()
-        val asset = assetRetriever.retrieve(url!!).getOrNull() ?: return ImportResult.failure(IOException("Fail to load ebook"))
-        val publication = publicationOpener.open(asset, allowUserInteraction = true).getOrNull() ?: return ImportResult.failure(IOException("Fail to open ebook"))
-        onProgress(null, context.getString(R.string.status_analyzing))
-
-        val actualTocToProcess = mergeLinks(publication.readingOrder, publication.tableOfContents)
-        if (actualTocToProcess.isEmpty()) {
-            return ImportResult.failure(Exception("Table of Content is empty"))
+        val uriString = inputData.getString(INPUT_URI_KEY) ?: return Outcome.Failed(R.string.error_read_file)
+        val url = uriString.toUri().toAbsoluteUrl() ?: return Outcome.Failed(R.string.error_read_file)
+        val asset = assetRetriever.retrieve(url).getOrElse { return Outcome.Failed(R.string.error_read_file) }
+        val publication = publicationOpener.open(asset, allowUserInteraction = false)
+            .getOrElse {
+                asset.close()
+                return Outcome.Failed(R.string.error_invalid_format)
+            }
+        return try {
+            importPublication(publication, uriString)
+        } finally {
+            publication.close()
         }
-
-        val processBookResult = processAndSaveBookInfo(
-            epubUriString = epubUriString,
-            publication = publication,
-            tableOfContentSize = actualTocToProcess.size
-        )
-        if (processBookResult.isFailure) {
-            return processBookResult
-        }
-
-        onProgress(null, context.getString(R.string.status_saving_content))
-        val initialTocEntities = saveAllTableOfContents(finalBookId, actualTocToProcess)
-
-        onProgress(null, context.getString(R.string.status_saving_content))
-        val processContentResult = processAndSaveBookContent(
-            publication = publication,
-            actualTocToProcess = actualTocToProcess,
-            initialTocEntities = initialTocEntities,
-            onProgress = onProgress
-        )
-        if (processContentResult.isFailure) {
-            return processContentResult
-        }
-
-        return ImportResult.success(finalBookTitle)
     }
 
-    private suspend fun saveAllTableOfContents(
-        bookId: String,
-        actualTocToProcess: List<Link>
-    ): List<TableOfContentEntity> {
-        val tocEntities = mutableListOf<TableOfContentEntity>()
-        val tocGroupedByResource = actualTocToProcess.groupBy { it.href.toString().substringBefore('#') }
+    private suspend fun importPublication(publication: Publication, uriString: String): Outcome {
+        if (publication.isRestricted) return Outcome.Failed(R.string.error_book_protected)
 
-        var overallChapterIndex = 0
+        updateProgressNotification(finalBookTitle, context.getString(R.string.status_analyzing), null)
+        val plan = EpubChapterPlanner.plan(
+            spine = publication.readingOrder.map { it.href.toString() },
+            toc = flattenLinks(publication.tableOfContents).map { EpubTocEntry(it.href.toString(), it.title) }
+        )
+        if (plan.isEmpty()) return Outcome.Failed(R.string.error_no_content)
 
-        for ((resourceBaseHref, tocLinksInResource) in tocGroupedByResource) {
-            if (resourceBaseHref.isBlank()) continue
+        val authors = publication.metadata.authors.map { it.name }
+        finalBookTitle = publication.metadata.title?.takeIf { it.isNotBlank() }
+            ?: FilePickerUtil.getFileName(context, uriString.toUri()).substringBeforeLast('.')
+        finalBookId = bookIdOf(finalBookTitle + authors.joinToString(prefix = "|", separator = "|"))
 
-            val isSplitChapter = tocLinksInResource.any { it.href.toString().contains('#') } && tocLinksInResource.size > 1
+        val existing = findExistingBook(authors)
+        if (existing != null) {
+            if (isComplete(existing)) return Outcome.Failed(R.string.error_book_already_exists)
+            removeBook(existing)
+        }
 
-            if (!isSplitChapter) {
-                val link = tocLinksInResource.first()
-                val title = link.title ?: context.getString(R.string.placeholder_chapter_title_fmt, overallChapterIndex + 1)
+        insertBook(publication, uriString, authors, plan.size)
 
-                tocEntities.add(
-                    TableOfContentEntity(bookId = bookId, title = title, index = overallChapterIndex)
-                )
-                overallChapterIndex++
-            } else {
-                for (link in tocLinksInResource) {
-                    val title = link.title ?: context.getString(R.string.placeholder_chapter_title_fmt, overallChapterIndex + 1)
+        val linksByFile = (publication.readingOrder + publication.resources)
+            .associateBy { EpubPaths.normalize(it.href.toString()) }
+        val imageResolver = EpubImageResolver(linksByFile.keys)
 
-                    tocEntities.add(
-                        TableOfContentEntity(bookId = bookId, title = title, index = overallChapterIndex)
-                    )
-                    overallChapterIndex++
-                }
+        var chapterCount = 0
+        var unreadable = 0
+        plan.forEachIndexed { fileIndex, plannedFile ->
+            val progress = (fileIndex + 1) * 100 / plan.size
+            val drafts = readDrafts(publication, plannedFile, linksByFile)
+            if (drafts == null) {
+                unreadable += plannedFile.entries.size.coerceAtLeast(1)
+                return@forEachIndexed
+            }
+            drafts.forEach { draft ->
+                saveChapter(publication, plannedFile.file, draft, chapterCount, imageResolver, linksByFile, progress)
+                chapterCount++
             }
         }
 
-        if (tocEntities.isNotEmpty()) {
-            tableOfContentsRepository.saveTableOfContents(tocEntities)
-        }
-
-        return tocEntities
+        if (chapterCount == 0) return Outcome.Failed(R.string.error_no_content)
+        bookRepository.saveBookInfoTotalChapter(finalBookId, chapterCount)
+        return Outcome.Imported(unreadable)
     }
 
-
-    private suspend fun processAndSaveBookContent(
+    /**
+     * The chapters a file becomes, or null when it could not be read. A blank file nothing in the table of contents names
+     * gets none: books use them as separator pages.
+     */
+    private suspend fun readDrafts(
         publication: Publication,
-        actualTocToProcess: List<Link>,
-        initialTocEntities: List<TableOfContentEntity>,
-        onProgress: suspend (progress: Int?, chapterName: String) -> Unit
-    ): ImportResult<String> {
-        val tocGroupedByResource = actualTocToProcess.groupBy { it.href.toString().substringBefore('#') }
-
-        var overallChapterIndex = 0
-        val totalTocEntriesForProgress = actualTocToProcess.size
-
-        for ((resourceBaseHref, tocLinksInResource) in tocGroupedByResource) {
-            if (resourceBaseHref.isBlank()) continue
-
-            var rawHtml = ""
-            try {
-                val mainResourceLink = Url(resourceBaseHref)
-                publication.get(mainResourceLink!!)?.buffered().use {
-                    it?.read()?.onSuccess { byteArray ->
-                        rawHtml = HtmlUtil.cleanHtmlForJsoup(byteArray.decodeToString())
-                    }
-                }
-            } catch (_: Exception) {}
-
-            val realDoc = Jsoup.parse(rawHtml)
-
-            val needsSplitting = tocLinksInResource.any { it.href.toString().contains('#') } && tocLinksInResource.size > 1
-
-            if (!needsSplitting) {
-                val representativeTocLink = tocLinksInResource.first()
-                val extractedTitle = realDoc.selectFirst("h1, h2, h3, h4, h5, h6")?.text()
-                    ?: representativeTocLink.title
-                    ?: realDoc.head().selectFirst("title")?.text()?.let { "$it - " + context.getString(R.string.placeholder_chapter_title_fmt, overallChapterIndex + 1) }
-                    ?: context.getString(R.string.placeholder_chapter_title_fmt, overallChapterIndex + 1)
-
-                val initialEntity = initialTocEntities.getOrNull(overallChapterIndex)
-                if (initialEntity != null && initialEntity.title != extractedTitle) {
-                    tableOfContentsRepository.updateTableOfContentTitle(
-                        bookId = finalBookId,
-                        index = overallChapterIndex,
-                        chapterTitle = extractedTitle
-                    )
-                }
-
-                val progress = ((overallChapterIndex + 1).toFloat() / totalTocEntriesForProgress * 100).toInt()
-                onProgress(progress, extractedTitle)
-
-                val (contentToSave, imagePaths) = parseAndGetContent(
-                    realDoc, null, null, publication, overallChapterIndex
-                )
-
-                saveOrUpdateChapterContent(extractedTitle, overallChapterIndex, contentToSave, imagePaths)
-
-                overallChapterIndex++
-
-                for (extraIdx in 1 until tocLinksInResource.size) {
-                    val extraLink = tocLinksInResource[extraIdx]
-                    val extraTitle = extraLink.title ?: context.getString(R.string.placeholder_chapter_title_fmt, overallChapterIndex + 1)
-                    saveEmptyChapterContent(finalBookId, extraTitle, overallChapterIndex)
-                    overallChapterIndex++
-                }
-
-            } else {
-                for (idxInResource in tocLinksInResource.indices) {
-                    val currentLink = tocLinksInResource[idxInResource]
-                    val extractedTitle = currentLink.title
-                        ?: realDoc.selectFirst("h1, h2, h3, h4, h5, h6")?.text()
-                        ?: context.getString(R.string.placeholder_chapter_title_fmt, overallChapterIndex + 1)
-
-                    val initialEntity = initialTocEntities.getOrNull(overallChapterIndex)
-                    if (initialEntity != null && initialEntity.title != extractedTitle) {
-                        tableOfContentsRepository.updateTableOfContentTitle(
-                            bookId = finalBookId,
-                            index = overallChapterIndex,
-                            chapterTitle = extractedTitle
-                        )
-                    }
-
-                    val progress = ((overallChapterIndex + 1).toFloat() / totalTocEntriesForProgress * 100).toInt()
-                    onProgress(progress, extractedTitle)
-
-                    val (startAnchor, endAnchor) = calculateAnchors(tocLinksInResource, idxInResource)
-
-                    val (contentToSave, imagePaths) = parseAndGetContent(
-                        realDoc, startAnchor, endAnchor, publication, overallChapterIndex
-                    )
-
-                    saveOrUpdateChapterContent(extractedTitle, overallChapterIndex, contentToSave, imagePaths)
-                    overallChapterIndex++
-                }
-            }
+        plannedFile: EpubPlannedFile,
+        linksByFile: Map<String, Link>
+    ): List<EpubChapterDraft>? {
+        val link = linksByFile[plannedFile.file] ?: return null
+        val bytes = readBytes(publication, link) ?: return null
+        val segments = if (link.mediaType?.isHtml == false) {
+            if (link.mediaType?.isBitmap != true) return emptyList()
+            listOf(EpubSegment(null, listOf(EpubBlock.Image("/" + plannedFile.file))))
+        } else {
+            EpubHtmlParser.parse(bytes, plannedFile.entries.mapNotNull { it.anchor })
         }
-        return ImportResult.success(finalBookTitle)
+        val drafts = EpubChapterPlanner.assemble(plannedFile.entries, segments)
+        return if (plannedFile.entries.isEmpty()) drafts.filter { it.blocks.isNotEmpty() } else drafts
     }
 
-    private fun calculateAnchors(links: List<Link>, index: Int): Pair<String?, String?> {
-        val currentLink = links[index]
-        val startAnchor = if (index == 0) null else
-            currentLink.href.toString().substringAfterLast('#', "").takeIf { it.isNotBlank() && currentLink.href.toString().contains('#') }
-
-        val nextLink = links.getOrNull(index + 1)
-        val endAnchor = nextLink?.href?.toString()?.substringAfterLast('#', "")?.takeIf { it.isNotBlank() && nextLink.href.toString().contains('#') }
-
-        return startAnchor to endAnchor
-    }
-
-    private suspend fun parseAndGetContent(
-        doc: Document, start: String?, end: String?, pub: Publication, idx: Int
-    ): Pair<List<String>, List<String>> {
-        var parsedContent: Pair<List<String>, List<String>>? = null
-        try {
-            parsedContent = parseChapterHtmlSegment(doc, start, end, pub, idx)
-        } catch (_: Exception) { }
-
-        val content = parsedContent?.first ?: emptyList()
-        val images = parsedContent?.second ?: emptyList()
-        return content to images
-    }
-
-    private suspend fun saveOrUpdateChapterContent(
-        title: String,
+    private suspend fun saveChapter(
+        publication: Publication,
+        file: String,
+        draft: EpubChapterDraft,
         index: Int,
-        content: List<String>,
-        images: List<String>
+        imageResolver: EpubImageResolver,
+        linksByFile: Map<String, Link>,
+        progress: Int,
     ) {
-        if (content.isNotEmpty()) {
-            saveChapterContent(finalBookId, title, index, content)
-        } else {
-            saveEmptyChapterContent(finalBookId, title, index)
-        }
+        val title = draft.title
+            ?: EpubHtmlParser.firstHeadingText(draft.blocks)
+            ?: context.getString(R.string.placeholder_chapter_title_fmt, index + 1)
+        updateProgressNotification(
+            fileName = finalBookTitle,
+            message = context.getString(R.string.status_processing_item_fmt, title),
+            progress = progress
+        )
 
-        val validImages = images.filter { !it.startsWith("error_") }
-        if (validImages.isNotEmpty()) {
-            imagePathRepository.saveImagePath(finalBookId, validImages)
-        }
-    }
-
-    @OptIn(ExperimentalReadiumApi::class)
-    private suspend fun parseChapterHtmlSegment(
-        document: Document,
-        startAnchorId: String?,
-        endAnchorId: String?,
-        publication: Publication,
-        chapterIndex: Int,
-    ): Pair<List<String>, List<String>> {
-        val contentList = mutableListOf<String>()
         val imagePaths = mutableListOf<String>()
-        val currentParagraph = StringBuilder()
-        var insideHeading = false
-        var spaceAddedInHeading = false
-        val startElement = if (!startAnchorId.isNullOrBlank()) {
-            try {
-                document.selectFirst("[id=$startAnchorId], [name=$startAnchorId]")
-            } catch (_: Exception) {
-                null
-            }
-        } else null
-        val endElement = if (!endAnchorId.isNullOrBlank()) {
-            try {
-                document.selectFirst("[id=$endAnchorId], [name=$endAnchorId]")
-            } catch (_: Exception) {
-                null
-            }
-        } else null
-
-        var processingActive = startAnchorId.isNullOrBlank() || startElement == null
-        var passedStartAnchor = processingActive
-        var hitEndAnchor = false
-        document.body().traverse(object : NodeVisitor {
-            override fun head(node: Node, depth: Int) {
-                if (hitEndAnchor) return
-
-                if (endElement != null && node == endElement) {
-                    hitEndAnchor = true
-                    if (!insideHeading) {
-                        flushParagraphWithFormatting(currentParagraph, contentList)
-                    }
-                    return
+        val content = draft.blocks.mapIndexedNotNull { blockIndex, block ->
+            when (block) {
+                is EpubBlock.Text -> block.stored
+                is EpubBlock.Image -> {
+                    val bytes = EpubImageResolver.decodeDataUri(block.source)
+                        ?: imageResolver.resolve(file, block.source)
+                            ?.let { linksByFile[it] }
+                            ?.let { readBytes(publication, it) }
+                    bytes?.let { saveImage(it, index, blockIndex) }?.also(imagePaths::add)
                 }
-
-                if (!passedStartAnchor && startElement != null && node == startElement) {
-                    passedStartAnchor = true
-                    processingActive = true
-                }
-
-                if (!processingActive || !passedStartAnchor) {
-                    return
-                }
-
-                when (node) {
-                    is TextNode -> {
-                        val text = node.text()
-                        val textToAppend = text.replace(Regex("\\s+"), " ")
-                        if (textToAppend.isNotBlank()) {
-                            currentParagraph.append(textToAppend)
-                        }
-                    }
-
-                    is Element -> {
-                        when (val tagName = node.tagName().lowercase()) {
-
-                            "p", "div", "ul", "ol", "li", "table", "blockquote", "hr",
-                            "figure", "figcaption", "details", "summary", "main", "header",
-                            "footer", "nav", "aside", "article", "section", "a" -> {
-                                if (!insideHeading) {
-                                    flushParagraphWithFormatting(currentParagraph, contentList)
-                                }
-                            }
-
-                            "h1", "h2", "h3", "h4", "h5", "h6" -> {
-                                currentParagraph.append("<$tagName>")
-                                insideHeading = true
-                                spaceAddedInHeading = false
-                            }
-
-                            "br" -> {
-                                if (insideHeading && !spaceAddedInHeading) {
-                                    currentParagraph.append(" ")
-                                    spaceAddedInHeading = true
-                                } else if (!insideHeading) {
-                                    flushParagraphWithFormatting(currentParagraph, contentList)
-                                }
-                            }
-
-                            "b", "strong", "i", "em", "u", "s", "strike", "del", "sup", "sub", "code" -> {
-                                currentParagraph.append("<$tagName>")
-                            }
-
-                            "td", "th" -> {
-                                if (currentParagraph.isNotEmpty() && !currentParagraph.endsWith(' ')) {
-                                    currentParagraph.append(" ")
-                                }
-                            }
-
-                            "img", "image" -> {
-                                if (!insideHeading) {
-                                    flushParagraphWithFormatting(currentParagraph, contentList)
-                                }
-                                val srcAttr = when (tagName) {
-                                    "img" -> node.attr("src").ifEmpty { node.attr("data-src") }
-                                    "image" -> node.attr("xlink:href").ifEmpty { node.attr("href") }
-                                    else -> ""
-                                }
-                                if (srcAttr.isNotBlank()) {
-                                    val cleanHref = srcAttr.replace(Regex("""^(\.\./)+"""), "")
-                                    contentList.add(cleanHref)
-                                }
-                            }
-
-                            else -> {}
-                        }
-                    }
-                }
-            }
-
-            override fun tail(node: Node, depth: Int) {
-                if (hitEndAnchor && node != endElement) return
-                if (!passedStartAnchor || !processingActive) return
-
-                if (node is Element) {
-                    when (val tagName = node.tagName().lowercase()) {
-                        "b", "strong", "i", "em", "u", "s", "strike", "del", "sup", "sub", "code" -> {
-                            if (currentParagraph.isNotEmpty())
-                                currentParagraph.append("</$tagName>")
-                        }
-
-                        "h1", "h2", "h3", "h4", "h5", "h6" -> {
-                            if (currentParagraph.isNotEmpty()) {
-                                currentParagraph.append("</$tagName>")
-                                if (!insideHeading) {
-                                    flushParagraphWithFormatting(currentParagraph, contentList)
-                                }
-                            }
-                            insideHeading = false
-                            spaceAddedInHeading = false
-                        }
-
-                        "p", "div", "ul", "ol", "li", "table", "blockquote", "hr", "tr",
-                        "figure", "figcaption", "details", "summary", "main", "header",
-                        "footer", "nav", "aside", "article", "section", "a" -> {
-                            if (!insideHeading) {
-                                flushParagraphWithFormatting(currentParagraph, contentList)
-                            }
-                        }
-
-                        "td", "th" -> {
-                            if (currentParagraph.isNotEmpty() && !currentParagraph.endsWith(' ')) {
-                                currentParagraph.append(" ")
-                            }
-                        }
-
-                        else -> {}
-                    }
-                }
-                if (endElement != null && node == endElement) {
-                    if (!insideHeading) {
-                        flushParagraphWithFormatting(currentParagraph, contentList)
-                    }
-                    hitEndAnchor = true
-                }
-            }
-        })
-
-        if (processingActive && !hitEndAnchor) {
-            if (!insideHeading) {
-                flushParagraphWithFormatting(currentParagraph, contentList)
             }
         }
 
-        val imageRegex =
-            Regex("""(?i)\b[\w./-]+?\.(jpg|jpeg|png|gif|webp|bmp|svg)\b""", RegexOption.IGNORE_CASE)
-        val fixedContentList = contentList.mapNotNull {
-            if (imageRegex.containsMatchIn(it)) {
-                val imagePath =
-                    saveImageFromPublication(it, publication, chapterIndex, contentList.indexOf(it))
-                if (imagePath.startsWith("error")) {
-                    null
-                } else {
-                    imagePaths.add(imagePath)
-                    imagePath
-                }
-            } else {
-                it
-            }
-        }
-        return Pair(fixedContentList, imagePaths)
+        tableOfContentsRepository.saveTableOfContent(
+            TableOfContentEntity(bookId = finalBookId, title = title, index = index)
+        )
+        chapterRepository.saveChapterContent(
+            ChapterContentEntity(tocId = index, bookId = finalBookId, chapterTitle = title, content = content)
+        )
+        if (imagePaths.isNotEmpty()) imagePathRepository.saveImagePath(finalBookId, imagePaths)
     }
 
-    private fun flushParagraphWithFormatting(buffer: StringBuilder, list: MutableList<String>) {
-        val paragraphText = buffer.toString().trim()
-        if (paragraphText.isNotBlank()) {
-            list.add(paragraphText)
-        }
-        buffer.setLength(0)
+    private suspend fun readBytes(publication: Publication, link: Link): ByteArray? =
+        publication.get(link)?.buffered()?.use { resource -> resource.read().getOrNull() }
+
+    /** Transparent images stay PNG: JPEG has no alpha, and Android fills it with black. */
+    private fun saveImage(bytes: ByteArray, chapterIndex: Int, blockIndex: Int): String? {
+        val bitmap = bytes.inputStream().use {
+            BitmapUtil.decodeSampledBitmapFromStream(it, MAX_BITMAP_DIMENSION, MAX_BITMAP_DIMENSION)
+        } ?: return null
+        val path = BitmapUtil.saveBitmapToPrivateStorage(
+            context = context,
+            bitmap = bitmap,
+            compressType = if (bitmap.hasAlpha()) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG,
+            quality = 80,
+            filenameWithoutExtension = "image_${finalBookId}_${chapterIndex}_$blockIndex"
+        )
+        bitmap.recycle()
+        return path.takeUnless { it.startsWith("error") }
     }
 
-    private fun flattenLinks(links: List<Link>): List<Link> {
-        val result = mutableListOf<Link>()
-        for (link in links) {
-            result.add(link)
-            if (link.children.isNotEmpty()) {
-                result.addAll(flattenLinks(link.children))
-            }
-        }
-        return result
-    }
+    private fun flattenLinks(links: List<Link>): List<Link> =
+        links.flatMap { listOf(it) + flattenLinks(it.children) }
 
-    private fun mergeLinks(readingOrder: List<Link>, tableOfContents: List<Link>): List<Link> {
-        val flatReadingOrder = flattenLinks(readingOrder)
-        val flatToc = flattenLinks(tableOfContents)
-        val (baseList, overrideList) = if (flatReadingOrder.size >= flatToc.size) {
-            flatReadingOrder to flatToc
-        } else {
-            flatToc to flatReadingOrder
-        }
-
-        val overrideMap = overrideList.associateBy { it.href }
-
-        return baseList.map { link ->
-            if (link.title.isNullOrBlank()) {
-                val match = overrideMap[link.href]
-                if (match != null && !match.title.isNullOrBlank()) {
-                    link.copy(title = match.title)
-                } else {
-                    link
-                }
-            } else {
-                link
-            }
-        }
-    }
-
-    @OptIn(ExperimentalReadiumApi::class)
-    private suspend fun saveImageFromPublication(
-        imageElementHref: String,
-        publication: Publication,
-        tocIndex: Int,
-        paragraphIndex: Int,
-    ): String {
-        val match =
-            publication.resources.firstOrNull { it.href.toString().endsWith(imageElementHref) }
-        var imagePath = "error"
-        match?.let{ link ->
-            publication.get(link)?.buffered()?.use { buffering ->
-                buffering.read().onSuccess { byteArray ->
-                    byteArray.inputStream().use {
-                        val bitmap = BitmapUtil.decodeSampledBitmapFromStream(
-                            it,
-                            MAX_BITMAP_DIMENSION,
-                            MAX_BITMAP_DIMENSION
-                        )
-                        if (bitmap != null) {
-                            imagePath = BitmapUtil.saveBitmapToPrivateStorage(
-                                context = context,
-                                bitmap = bitmap,
-                                compressType = Bitmap.CompressFormat.JPEG,
-                                quality = 80,
-                                filenameWithoutExtension = "image_${finalBookId}_${tocIndex}_${paragraphIndex}"
-                            )
-                            bitmap.recycle()
-                        }
-                    }
-                }
-            }
-        } ?: return imagePath
-        return imagePath
-    }
-
-    private suspend fun processAndSaveBookInfo(
-        epubUriString: String,
-        publication: Publication,
-        tableOfContentSize: Int,
-    ): ImportResult<String> {
-
-        finalBookTitle = publication.metadata.title.toString()
-        finalBookId = BigInteger(1, md.digest(finalBookTitle.toByteArray())).toString(16)
+    private fun bookIdOf(identity: String): String =
+        BigInteger(1, MessageDigest.getInstance("MD5").digest(identity.toByteArray()))
+            .toString(16)
             .padStart(32, '0')
-        if (bookRepository.isBookExist(finalBookTitle)) {
-            return ImportResult.failure(IOException("Book already imported"))
-        }
-        var coverImagePath: String
-        val coverImageBitmap = publication.cover()
-        coverImagePath = coverImageBitmap?.let { bitmap ->
+
+    /** Books imported by older versions are identified by title alone, so they are looked up that way too. */
+    private suspend fun findExistingBook(authors: List<String>): Book? =
+        bookRepository.getBook(finalBookId)
+            ?: bookRepository.getBook(bookIdOf(finalBookTitle))?.takeIf { it.authors == authors }
+
+    private suspend fun isComplete(book: Book): Boolean =
+        tableOfContentsRepository.getTableOfContents(book.id).size >= book.totalChapter
+
+    private suspend fun insertBook(
+        publication: Publication,
+        uriString: String,
+        authors: List<String>,
+        plannedChapters: Int
+    ) {
+        val coverImagePath = publication.cover()?.let { bitmap ->
             BitmapUtil.saveBitmapToPrivateStorage(
                 context = context,
                 bitmap = bitmap,
@@ -647,7 +321,6 @@ class EPUBImportWorker(
                 filenameWithoutExtension = "cover_$finalBookId"
             )
         } ?: "error"
-        val authors = publication.metadata.authors.map { it.name }
         bookRepository.insertBook(
             BookEntity(
                 bookId = finalBookId,
@@ -655,42 +328,32 @@ class EPUBImportWorker(
                 coverImagePath = coverImagePath,
                 authors = authors,
                 description = publication.metadata.description,
-                totalChapter = tableOfContentSize,
+                totalChapter = plannedChapters,
                 currentChapter = 0,
                 currentParagraph = 0,
                 isFavorite = false,
-                storagePath = epubUriString,
+                storagePath = uriString,
                 isEditable = false,
                 fileType = "epub"
             )
-        ).run {
-            bookRepository.updateRecentRead(finalBookId)
-        }
-        imagePathRepository.saveImagePath(finalBookId, listOf(coverImagePath))
-        return ImportResult.success(finalBookTitle)
-    }
-
-    private suspend fun saveChapterContent(
-        bookId: String,
-        title: String,
-        index: Int,
-        content: List<String>
-    ) {
-        val chapterEntity = ChapterContentEntity(
-            tocId = index,
-            bookId = bookId,
-            chapterTitle = title,
-            content = content
         )
-        chapterRepository.saveChapterContent(chapterEntity)
+        insertedBook = true
+        bookRepository.updateRecentRead(finalBookId)
+        imagePathRepository.saveImagePath(finalBookId, listOf(coverImagePath))
     }
 
-    private suspend fun saveEmptyChapterContent(
-        bookId: String,
-        title: String,
-        index: Int
-    ) {
-        saveChapterContent(bookId, title, index, emptyList())
+    private suspend fun removeInsertedBook() {
+        if (!insertedBook) return
+        bookRepository.getBook(finalBookId)?.let { removeBook(it) }
+        insertedBook = false
+    }
+
+    private suspend fun removeBook(book: Book) {
+        imagePathRepository.getImagePathsByBookIds(listOf(book.id)).forEach {
+            BitmapUtil.deleteImageFromPrivateStorage(it.imagePath)
+        }
+        imagePathRepository.deleteByBookIds(listOf(book.id))
+        bookRepository.deleteBooks(listOf(book))
     }
 
     private fun createNotificationChannel(
@@ -736,26 +399,24 @@ class EPUBImportWorker(
         }
     }
 
-    private fun sendCompletionNotification(
-        isSuccess: Boolean,
-        bookTitle: String?,
-        failureReason: String? = null
-    ) {
-        val title = if (isSuccess) context.getString(R.string.result_success_title) else context.getString(R.string.result_failed_title)
-        val defaultTitle = bookTitle ?: context.getString(R.string.error_default_title)
-        val userFriendlyReason = when {
-            failureReason == null -> null
-            failureReason.contains("Book already imported") -> context.getString(R.string.error_book_already_exists)
-            failureReason.contains("Could not parse EPUB file") -> context.getString(R.string.error_invalid_format)
-            failureReason.contains("Table of Contents is empty") -> context.getString(R.string.error_no_content)
-            failureReason.contains("Failed to open InputStream") -> context.getString(R.string.error_read_file)
-            failureReason.contains("OutOfMemoryError") -> context.getString(R.string.error_out_of_memory)
-            else -> context.getString(R.string.error_unexpected)
-        }
-        val text = when {
-            isSuccess -> context.getString(R.string.result_success_msg_fmt, defaultTitle)
-            userFriendlyReason != null -> context.getString(R.string.error_detailed_fmt, defaultTitle, userFriendlyReason)
-            else -> context.getString(R.string.error_generic_fmt, defaultTitle)
+    private fun sendCompletionNotification(outcome: Outcome) {
+        val displayTitle = finalBookTitle.ifEmpty { context.getString(R.string.error_default_title) }
+        val title = context.getString(
+            if (outcome is Outcome.Imported) R.string.result_success_title else R.string.result_failed_title
+        )
+        val text = when (outcome) {
+            is Outcome.Imported -> if (outcome.unreadableChapters == 0) {
+                context.getString(R.string.result_success_msg_fmt, displayTitle)
+            } else {
+                context.resources.getQuantityString(
+                    R.plurals.result_partial_msg_fmt,
+                    outcome.unreadableChapters,
+                    displayTitle,
+                    outcome.unreadableChapters
+                )
+            }
+            is Outcome.Failed ->
+                context.getString(R.string.error_detailed_fmt, displayTitle, context.getString(outcome.reason))
         }
         val builder = NotificationCompat.Builder(context, COMPLETION_CHANNEL_ID).apply {
             setSmallIcon(R.mipmap.ic_launcher_foreground)
@@ -778,5 +439,4 @@ class EPUBImportWorker(
             ForegroundInfo(notificationId, notification)
         }
     }
-
 }
